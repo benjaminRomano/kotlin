@@ -33,8 +33,10 @@ import org.jetbrains.kotlin.gradle.dsl.kotlinExtension
 import org.jetbrains.kotlin.gradle.plugin.KotlinCompilation.Companion.MAIN_COMPILATION_NAME
 import org.jetbrains.kotlin.gradle.plugin.KotlinCompilation.Companion.TEST_COMPILATION_NAME
 import org.jetbrains.kotlin.gradle.plugin.mpp.*
+import org.jetbrains.kotlin.gradle.tasks.AbstractKotlinNativeCompile
 import org.jetbrains.kotlin.gradle.tasks.CInteropProcess
 import org.jetbrains.kotlin.gradle.tasks.KotlinNativeCompile
+import org.jetbrains.kotlin.gradle.tasks.KotlinNativeLink
 import org.jetbrains.kotlin.gradle.utils.isGradleVersionAtLeast
 import org.jetbrains.kotlin.gradle.utils.lowerCamelCaseName
 import org.jetbrains.kotlin.konan.target.CompilerOutputKind
@@ -388,9 +390,6 @@ open class KotlinNativeTargetConfigurator(
 ) {
     private val hostTargets = listOf(KonanTarget.LINUX_X64, KonanTarget.MACOS_X64, KonanTarget.MINGW_X64)
 
-    private val Collection<*>.isDimensionVisible: Boolean
-        get() = size > 1
-
     private fun Project.createTestTask(compilation: KotlinNativeCompilation, testExecutableLinkTask: KotlinNativeCompile) {
         val compilationSuffix = compilation.name.takeIf { it != KotlinCompilation.TEST_COMPILATION_NAME }.orEmpty()
         val taskName = lowerCamelCaseName(compilation.target.targetName, compilationSuffix, testTaskNameSuffix)
@@ -417,18 +416,6 @@ open class KotlinNativeTargetConfigurator(
         }
     }
 
-    private fun Project.binaryOutputDirectory(
-        buildType: NativeBuildType,
-        kind: NativeOutputKind,
-        compilation: KotlinNativeCompilation
-    ): File {
-        val targetSubDirectory = compilation.target.disambiguationClassifier?.let { "$it/" }.orEmpty()
-        val buildTypeSubDirectory = buildType.name.toLowerCase()
-        val kindSubDirectory = kind.outputDirectoryName
-
-        return buildDir.resolve("bin/$targetSubDirectory${compilation.name}/$buildTypeSubDirectory/$kindSubDirectory")
-    }
-
     private fun Project.klibOutputDirectory(
         compilation: KotlinNativeCompilation
     ): File {
@@ -436,53 +423,11 @@ open class KotlinNativeTargetConfigurator(
         return buildDir.resolve("classes/kotlin/$targetSubDirectory${compilation.name}")
     }
 
-    private fun KotlinNativeCompile.addCompilerPlugins() {
+    private fun AbstractKotlinNativeCompile.addCompilerPlugins() {
         SubpluginEnvironment
             .loadSubplugins(project, kotlinPluginVersion)
             .addSubpluginOptions<CommonCompilerArguments>(project, this, compilerPluginOptions)
         compilerPluginClasspath = project.configurations.getByName(NATIVE_COMPILER_PLUGIN_CLASSPATH_CONFIGURATION_NAME)
-    }
-
-    private fun Project.createBinaryLinkTasks(compilation: KotlinNativeCompilation) = whenEvaluated {
-        val konanTarget = compilation.target.konanTarget
-        val availableOutputKinds = compilation.outputKinds.filter { it.availableFor(konanTarget) }
-        val linkAll = project.tasks.maybeCreate(compilation.linkAllTaskName)
-
-        for (buildType in compilation.buildTypes) {
-            for (kind in availableOutputKinds) {
-                val compilerOutputKind = kind.compilerOutputKind
-
-                val linkTask = project.tasks.create(
-                    compilation.linkTaskName(kind, buildType),
-                    KotlinNativeCompile::class.java
-                ).apply {
-                    this.compilation = compilation
-                    outputKind = compilerOutputKind
-                    group = BasePlugin.BUILD_GROUP
-                    description = "Links ${kind.description} from the '${compilation.name}' " +
-                            "compilation for target '${compilation.platformType.name}'."
-                    enabled = compilation.target.konanTarget.enabledOnCurrentHost
-
-                    optimized = buildType.optimized
-                    debuggable = buildType.debuggable
-
-                    destinationDir = binaryOutputDirectory(buildType, kind, compilation)
-                    addCompilerPlugins()
-
-                    linkAll.dependsOn(this)
-                }
-
-                compilation.binaryTasks[kind to buildType] = linkTask
-
-                if (compilation.isTestCompilation &&
-                    buildType == NativeBuildType.DEBUG &&
-                    konanTarget in hostTargets
-                ) {
-                    // TODO: Refactor and move into the corresponding method of AbstractKotlinTargetConfigurator.
-                    createTestTask(compilation, linkTask)
-                }
-            }
-        }
     }
 
     private fun Project.createKlibArtifact(
@@ -541,13 +486,32 @@ open class KotlinNativeTargetConfigurator(
     ) = createKlibArtifact(interop.compilation, interopTask.outputFile, "cinterop-${interop.name}", interopTask, copy = true)
 
 
+    private fun Project.createLinkTask(binary: NativeBinary) {
+        // TODO: drop compilation.linkAllTaskName
+        // TODO: drop compilation.binaryTasks
+        // TODO: Provide a link all task.
+        // TODO: create tasks to run executables
+        // TODO: Create binaries for outputkinds listed in compilations.
+        tasks.create(
+            binary.linkTaskName,
+            KotlinNativeLink::class.java
+        ).apply {
+            val target = binary.target
+            this.binary = binary
+            group = BasePlugin.BUILD_GROUP
+            description = "Links ${binary.outputKind.description} '${binary.name}' for a target '${target.name}'."
+            enabled = target.konanTarget.enabledOnCurrentHost
+            destinationDir = binary.outputDirectory
+            addCompilerPlugins()
+        }
+    }
+
     private fun Project.createKlibCompilationTask(compilation: KotlinNativeCompilation) {
         val compileTask = tasks.create(
             compilation.compileKotlinTaskName,
             KotlinNativeCompile::class.java
         ).apply {
             this.compilation = compilation
-            outputKind = CompilerOutputKind.LIBRARY
             group = BasePlugin.BUILD_GROUP
             description = "Compiles a klibrary from the '${compilation.name}' " +
                     "compilation for target '${compilation.platformType.name}'."
@@ -605,7 +569,6 @@ open class KotlinNativeTargetConfigurator(
         tasks.create(target.artifactsTaskName)
         target.compilations.all {
             createKlibCompilationTask(it)
-            createBinaryLinkTasks(it)
         }
 
         with(configurations.getByName(target.apiElementsConfigurationName)) {
@@ -631,8 +594,22 @@ open class KotlinNativeTargetConfigurator(
         }
     }
 
+    protected fun configureBinaries(target: KotlinNativeTarget) {
+        val project = target.project
+        target.binaries.all {
+            project.createLinkTask(it)
+        }
+
+        project.whenEvaluated {
+            target.compilations.all {
+                // TODO: add binaries from compilation outputKinds
+            }
+        }
+    }
+
     override fun configureTarget(target: KotlinNativeTarget) {
         super.configureTarget(target)
+        configureBinaries(target)
         configureCInterops(target)
         warnAboutIncorrectDependencies(target)
     }

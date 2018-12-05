@@ -191,7 +191,21 @@ class KotlinNativeTarget(
         attributes.attribute(konanTargetAttribute, konanTarget.name)
     }
 
-    // TODO: Should binary files be output of a target or a compilation?
+    val binaries = if(isGradleVersionAtLeast(4, 2)) {
+        // Use newInstance to allow accessing binaries by their names in Groovy using the propertyMissing method.
+        project.objects.newInstance(KotlinNativeBinaryContainer::class.java, this, WrapUtil.toDomainObjectSet(NativeBinary::class.java))
+    } else {
+        KotlinNativeBinaryContainer(this, WrapUtil.toDomainObjectSet(NativeBinary::class.java))
+    }
+
+    fun binaries(configure: KotlinNativeBinaryContainer.() -> Unit) {
+        binaries.configure()
+    }
+
+    fun binaries(configure: Closure<*>) {
+        ConfigureUtil.configure(configure, binaries)
+    }
+
     override val artifactsTaskName: String
         get() = disambiguateName("link")
 
