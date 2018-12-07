@@ -23,6 +23,7 @@ import org.gradle.api.plugins.BasePlugin
 import org.gradle.api.plugins.JavaBasePlugin
 import org.gradle.api.tasks.Copy
 import org.gradle.api.tasks.Delete
+import org.gradle.api.tasks.Exec
 import org.gradle.api.tasks.bundling.Jar
 import org.gradle.api.tasks.testing.Test
 import org.gradle.language.base.plugins.LifecycleBasePlugin
@@ -61,7 +62,8 @@ abstract class AbstractKotlinTargetConfigurator<KotlinTargetType : KotlinTarget>
     }
 
 
-    abstract fun configureArchivesAndComponent(target: KotlinTargetType)
+    abstract protected fun configureArchivesAndComponent(target: KotlinTargetType)
+    abstract protected fun configureTest(target: KotlinTargetType)
 
     private fun Project.registerOutputsForStaleOutputCleanup(kotlinCompilation: KotlinCompilation<*>) {
         val cleanTask = tasks.getByName(LifecycleBasePlugin.CLEAN_TASK_NAME) as Delete
@@ -115,22 +117,6 @@ abstract class AbstractKotlinTargetConfigurator<KotlinTargetType : KotlinTarget>
             }
 
             createLifecycleTask(compilation)
-        }
-    }
-
-    protected fun configureTest(target: KotlinTarget) {
-        val testCompilation = target.compilations.findByName(KotlinCompilation.TEST_COMPILATION_NAME) as? KotlinCompilationToRunnableFiles
-            ?: return // Otherwise, there is no runtime classpath
-
-        target.project.tasks.create(lowerCamelCaseName(target.targetName, testTaskNameSuffix), Test::class.java).apply {
-            project.afterEvaluate {
-                // use afterEvaluate to override the JavaPlugin defaults for Test tasks
-                conventionMapping.map("testClassesDirs") { testCompilation.output.classesDirs }
-                conventionMapping.map("classpath") { testCompilation.runtimeDependencyFiles }
-                description = "Runs the unit tests."
-                group = JavaBasePlugin.VERIFICATION_GROUP
-                target.project.tasks.findByName(JavaBasePlugin.CHECK_TASK_NAME)?.dependsOn(this@apply)
-            }
         }
     }
 
@@ -372,6 +358,22 @@ open class KotlinTargetConfigurator<KotlinCompilationType : KotlinCompilation<*>
         }
     }
 
+    override fun configureTest(target: KotlinOnlyTarget<KotlinCompilationType>) {
+        val testCompilation = target.compilations.findByName(KotlinCompilation.TEST_COMPILATION_NAME) as? KotlinCompilationToRunnableFiles<*>
+            ?: return // Otherwise, there is no runtime classpath
+
+        target.project.tasks.create(lowerCamelCaseName(target.targetName, testTaskNameSuffix), Test::class.java).apply {
+            project.afterEvaluate {
+                // use afterEvaluate to override the JavaPlugin defaults for Test tasks
+                conventionMapping.map("testClassesDirs") { testCompilation.output.classesDirs }
+                conventionMapping.map("classpath") { testCompilation.runtimeDependencyFiles }
+                description = "Runs the unit tests."
+                group = JavaBasePlugin.VERIFICATION_GROUP
+                target.project.tasks.findByName(JavaBasePlugin.CHECK_TASK_NAME)?.dependsOn(this@apply)
+            }
+        }
+    }
+
     private fun addJar(configuration: Configuration, jarArtifact: PublishArtifact) {
         val publications = configuration.outgoing
 
@@ -388,34 +390,6 @@ open class KotlinNativeTargetConfigurator(
     createDefaultSourceSets = true,
     createTestCompilation = true
 ) {
-    private val hostTargets = listOf(KonanTarget.LINUX_X64, KonanTarget.MACOS_X64, KonanTarget.MINGW_X64)
-
-    private fun Project.createTestTask(compilation: KotlinNativeCompilation, testExecutableLinkTask: KotlinNativeCompile) {
-        val compilationSuffix = compilation.name.takeIf { it != KotlinCompilation.TEST_COMPILATION_NAME }.orEmpty()
-        val taskName = lowerCamelCaseName(compilation.target.targetName, compilationSuffix, testTaskNameSuffix)
-        val testTask = tasks.create(taskName, RunTestExecutable::class.java).apply {
-            group = LifecycleBasePlugin.VERIFICATION_GROUP
-            description = "Executes Kotlin/Native unit tests from the '${compilation.name}' compilation " +
-                    "for target '${compilation.target.name}'."
-            enabled = compilation.target.konanTarget.isCurrentHost
-
-            val testExecutableProperty = testExecutableLinkTask.outputFile
-            executable = testExecutableProperty.get().absolutePath
-            outputDir = project.layout.projectDirectory.asFile
-
-            if (project.hasProperty("teamcity.version")) {
-                args("--ktest_logger=TEAMCITY")
-            }
-
-            onlyIf { testExecutableProperty.get().exists() }
-            inputs.file(testExecutableProperty)
-            dependsOn(testExecutableLinkTask)
-        }
-        tasks.maybeCreate(LifecycleBasePlugin.CHECK_TASK_NAME).apply {
-            dependsOn(testTask)
-        }
-    }
-
     private fun Project.klibOutputDirectory(
         compilation: KotlinNativeCompilation
     ): File {
@@ -430,6 +404,7 @@ open class KotlinNativeTargetConfigurator(
         compilerPluginClasspath = project.configurations.getByName(NATIVE_COMPILER_PLUGIN_CLASSPATH_CONFIGURATION_NAME)
     }
 
+    // region Artifact creation.
     private fun Project.createKlibArtifact(
         compilation: KotlinNativeCompilation,
         artifactFile: File,
@@ -484,14 +459,14 @@ open class KotlinNativeTargetConfigurator(
         interop: DefaultCInteropSettings,
         interopTask: CInteropProcess
     ) = createKlibArtifact(interop.compilation, interopTask.outputFile, "cinterop-${interop.name}", interopTask, copy = true)
+    // endregion.
 
-
+    // region Task creation.
     private fun Project.createLinkTask(binary: NativeBinary) {
         // TODO: drop compilation.linkAllTaskName
         // TODO: drop compilation.binaryTasks
         // TODO: Provide a link all task.
         // TODO: create tasks to run executables
-        // TODO: Create binaries for outputkinds listed in compilations.
         tasks.create(
             binary.linkTaskName,
             KotlinNativeLink::class.java
@@ -503,6 +478,32 @@ open class KotlinNativeTargetConfigurator(
             enabled = target.konanTarget.enabledOnCurrentHost
             destinationDir = binary.outputDirectory
             addCompilerPlugins()
+        }
+    }
+
+    private fun Project.createRunTask(binary: Executable) {
+        val taskName = binary.runTaskName
+        // TODO provide a special exec task for tests.
+        tasks.create(taskName, Exec::class.java).apply {
+            if (binary.isDefaultTestExecutable) {
+                group =  LifecycleBasePlugin.VERIFICATION_GROUP
+                description = "Executes Kotlin/Native unit tests for target ${binary.target.name}."
+                tasks.maybeCreate(LifecycleBasePlugin.CHECK_TASK_NAME).dependsOn(this)
+                if (project.hasProperty("teamcity.version")) {
+                    args("--ktest_logger=TEAMCITY")
+                }
+            } else {
+                group = RUN_GROUP
+                description = "Executes Kotlin/Native executable ${binary.baseName} for target ${binary.target.name}"
+            }
+
+            enabled = binary.target.konanTarget.isCurrentHost
+
+            executable = binary.outputFile.absolutePath
+            workingDir = project.projectDir
+
+            onlyIf { binary.outputFile.exists() }
+            dependsOn(binary.linkTaskName)
         }
     }
 
@@ -564,6 +565,15 @@ open class KotlinNativeTargetConfigurator(
             createCInteropKlibArtifact(interop, interopTask)
         }
     }
+    // endregion.
+
+    // region Configuration.
+    override fun configureTarget(target: KotlinNativeTarget) {
+        super.configureTarget(target)
+        configureBinaries(target)
+        configureCInterops(target)
+        warnAboutIncorrectDependencies(target)
+    }
 
     override fun configureArchivesAndComponent(target: KotlinNativeTarget): Unit = with(target.project) {
         tasks.create(target.artifactsTaskName)
@@ -573,6 +583,12 @@ open class KotlinNativeTargetConfigurator(
 
         with(configurations.getByName(target.apiElementsConfigurationName)) {
             outgoing.attributes.attribute(ArtifactAttributes.ARTIFACT_FORMAT, NativeArtifactFormat.KLIB)
+        }
+    }
+
+    override fun configureTest(target: KotlinNativeTarget) {
+        target.binaries.defaultTestExecutable {
+            compilation = target.compilations.maybeCreate(KotlinCompilation.TEST_COMPILATION_NAME)
         }
     }
 
@@ -600,18 +616,37 @@ open class KotlinNativeTargetConfigurator(
             project.createLinkTask(it)
         }
 
+        target.binaries.withType(Executable::class.java).all {
+            project.createRunTask(it)
+        }
+
+        // Create binaries for output kinds declared using the old DSL.
         project.whenEvaluated {
-            target.compilations.all {
-                // TODO: add binaries from compilation outputKinds
+            target.compilations.all { compilation ->
+                val binaries = target.binaries
+                val konanTarget = compilation.target.konanTarget
+                val name = compilation.name
+                val buildTypes = compilation.buildTypes
+                val availableOutputKinds = compilation.outputKinds.filter { it.availableFor(konanTarget) }
+
+                val configure: NativeBinary.() -> Unit = {
+                    this.compilation = compilation
+                    linkerOpts.addAll(compilation.linkerOpts)
+                    if (this is Executable) {
+                        entryPoint = compilation.entryPoint
+                    }
+                }
+
+                for (kind in availableOutputKinds) {
+                    when (kind) {
+                        NativeOutputKind.EXECUTABLE -> binaries.executable(name, buildTypes, configure)
+                        NativeOutputKind.DYNAMIC -> binaries.sharedLib(name, buildTypes, configure)
+                        NativeOutputKind.STATIC -> binaries.staticLib(name, buildTypes, configure)
+                        NativeOutputKind.FRAMEWORK -> binaries.framework(name, buildTypes, configure)
+                    }
+                }
             }
         }
-    }
-
-    override fun configureTarget(target: KotlinNativeTarget) {
-        super.configureTarget(target)
-        configureBinaries(target)
-        configureCInterops(target)
-        warnAboutIncorrectDependencies(target)
     }
 
     override fun defineConfigurationsForTarget(target: KotlinNativeTarget) {
@@ -660,6 +695,7 @@ open class KotlinNativeTargetConfigurator(
             }
         }
     }
+    // endregion.
 
     object NativeArtifactFormat {
         const val KLIB = "org.jetbrains.kotlin.klib"
@@ -667,6 +703,7 @@ open class KotlinNativeTargetConfigurator(
 
     companion object {
         const val INTEROP_GROUP = "interop"
+        const val RUN_GROUP = "run"
 
         protected fun defineConfigurationsForCInterop(
             compilation: KotlinNativeCompilation,

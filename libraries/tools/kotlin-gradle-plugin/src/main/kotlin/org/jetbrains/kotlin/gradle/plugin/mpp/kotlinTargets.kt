@@ -212,21 +212,20 @@ class KotlinNativeTarget(
     override val publishable: Boolean
         get() = konanTarget.enabledOnCurrentHost
 
+    // User-visible constants
+    val DEBUG = NativeBuildType.DEBUG
+    val RELEASE = NativeBuildType.RELEASE
+
+    val EXECUTABLE = NativeOutputKind.EXECUTABLE
+    val FRAMEWORK = NativeOutputKind.FRAMEWORK
+    val DYNAMIC = NativeOutputKind.DYNAMIC
+    val STATIC = NativeOutputKind.STATIC
+
     companion object {
         val konanTargetAttribute = Attribute.of(
             "org.jetbrains.kotlin.native.target",
             String::class.java
         )
-
-        // TODO: Can we do it better?
-        // User-visible constants
-        val DEBUG = NativeBuildType.DEBUG
-        val RELEASE = NativeBuildType.RELEASE
-
-        val EXECUTABLE = NativeOutputKind.EXECUTABLE
-        val FRAMEWORK = NativeOutputKind.FRAMEWORK
-        val DYNAMIC = NativeOutputKind.DYNAMIC
-        val STATIC = NativeOutputKind.STATIC
     }
 }
 

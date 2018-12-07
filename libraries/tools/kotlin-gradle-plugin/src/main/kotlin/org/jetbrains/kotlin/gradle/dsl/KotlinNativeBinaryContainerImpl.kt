@@ -24,12 +24,19 @@ executable([debug]) -> debugExecutable
 // Tests:
 1. Cannot add a second binary with the same parameters.
 2. Can access a binary by name
+3. Access linkTask
+4. Access runTask
+5. Final binaries have correct names
+6. Old APIs work fine:
+    - creating binaries,
+    - getting binaries and link tasks,
+    - setting binary parameters using compilation DSL: linker opts and entry points
+
 
 */
 
 // TODO: Support DSL for build types.
 // TODO: May be rename parameters? namePrefix -> baseName?
-// TODO: Remove debug outputs.
 // TODO: Drop NativeOutputKind
 
 open class KotlinNativeBinaryContainer @Inject constructor(
@@ -56,13 +63,15 @@ open class KotlinNativeBinaryContainer @Inject constructor(
         val binary = getByName(name)
         require(binary is T && binary.buildType == buildType) {
             "Binary $name has incorrect outputKind or build type.\n" +
-            "Expected: ${buildType.getName()} $classifier. Actual: ${binary.buildType.getName()} ${binary.outputKind.taskNameClassifier}."
+                    "Expected: ${buildType.getName()} $classifier. Actual: ${binary.buildType.getName()} ${binary.outputKind.taskNameClassifier}."
         }
         return binary as T
     }
 
     /* Provide an access to binaries by their names in Groovy DSL. */
     override fun propertyMissing(name: String): NativeBinary = get(name)
+
+    /* Provide an access to binaries by their names in Groovy DSL. Allows using the [] operator in Groovy. */
     override fun getAt(name: String): NativeBinary = get(name)
 
     /* Provide an access to binaries by their names in Kotlin DSL. */
@@ -99,7 +108,7 @@ open class KotlinNativeBinaryContainer @Inject constructor(
         val name = generateName(namePrefix, buildType, outputKind.taskNameClassifier)
 
         require(name !in nameToBinary) {
-            "Cannot create binary $name: binary with such name already exists"
+            "Cannot create binary $name: binary with such a name already exists"
         }
 
         require(outputKind.availableFor(target.konanTarget)) {
@@ -118,6 +127,19 @@ open class KotlinNativeBinaryContainer @Inject constructor(
         buildTypes: Collection<NativeBuildType>,
         configure: Executable.() -> Unit
     ) = createBinaries(namePrefix, baseName, NativeOutputKind.EXECUTABLE, buildTypes, ::Executable, configure)
+
+    internal fun defaultTestExecutable(
+        configure: Executable.() -> Unit
+    ) = createBinaries(
+        "test",
+        "test",
+        NativeOutputKind.EXECUTABLE,
+        listOf(NativeBuildType.DEBUG),
+        { name, baseName, buildType, compilation ->
+            Executable(name, baseName, buildType, compilation, true)
+        },
+        configure
+    )
 
     override fun createStaticLibs(
         namePrefix: String,

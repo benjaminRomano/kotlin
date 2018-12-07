@@ -127,13 +127,6 @@ abstract class AbstractKotlinNativeCompile : AbstractCompile(), KotlinCompile<Ko
     val target: String
         @Input get() = compilation.target.konanTarget.name
 
-    // TODO: move in executable configuration.
-    val entryPoint: String?
-        @Optional @Input get() = compilation.entryPoint
-
-    val linkerOpts: List<String>
-        @Input get() = compilation.linkerOpts
-
     // TODO: rework.
     val additionalCompilerOptions: Collection<String>
         @Input get() = compilation.extraOpts
@@ -230,7 +223,7 @@ abstract class AbstractKotlinNativeCompile : AbstractCompile(), KotlinCompile<Ko
     val defaultSerializedCompilerArguments: List<String>
         @Internal get() = buildCommonArgs(true)
 
-    private fun buildCommonArgs(defaultsOnly: Boolean = false) = mutableListOf<String>().apply {
+    private fun buildCommonArgs(defaultsOnly: Boolean = false): List<String> = mutableListOf<String>().apply {
 
         add("-Xmulti-platform")
 
@@ -266,7 +259,7 @@ abstract class AbstractKotlinNativeCompile : AbstractCompile(), KotlinCompile<Ko
         }
     }
 
-    private fun buildArgs(defaultsOnly: Boolean = false) = mutableListOf<String>().apply {
+    protected open fun buildArgs(defaultsOnly: Boolean = false): List<String> = mutableListOf<String>().apply {
         addKey("-opt", optimized)
         addKey("-g", debuggable)
         addKey("-ea", debuggable)
@@ -274,7 +267,6 @@ abstract class AbstractKotlinNativeCompile : AbstractCompile(), KotlinCompile<Ko
 
         addArg("-target", target)
         addArg("-p", outputKind.name.toLowerCase())
-        addArgIfNotNull("-entry", entryPoint)
 
         if (!defaultsOnly) {
             addArg("-o", outputFile.get().absolutePath)
@@ -292,8 +284,6 @@ abstract class AbstractKotlinNativeCompile : AbstractCompile(), KotlinCompile<Ko
         if (friends != null && friends.isNotEmpty()) {
             addArg("-friend-modules", friends.map { it.absolutePath }.joinToString(File.pathSeparator))
         }
-
-        addListArg("-linker-options", linkerOpts)
 
         addAll(buildCommonArgs(defaultsOnly))
 
@@ -359,6 +349,24 @@ open class KotlinNativeLink : AbstractKotlinNativeCompile() {
     @get:Internal
     override val baseName: String
         get() = binary.baseName
+
+    @get:Optional
+    @get:Input
+    val entryPoint: String?
+        get() = (binary as? Executable)?.entryPoint
+
+    @get:Input
+    val linkerOpts: List<String>
+        get() = binary.linkerOpts
+
+    override fun buildArgs(defaultsOnly: Boolean): List<String> {
+        val superArgs = super.buildArgs(defaultsOnly)
+        return mutableListOf<String>().apply {
+            addAll(superArgs)
+            addArgIfNotNull("-entry", entryPoint)
+            addListArg("-linker-options", linkerOpts)
+        }
+    }
 }
 
 open class CInteropProcess : DefaultTask() {

@@ -5,12 +5,13 @@
 
 package org.jetbrains.kotlin.gradle.plugin.mpp
 
+import groovy.lang.Closure
 import org.gradle.api.Named
 import org.gradle.api.Project
-import org.gradle.api.file.Directory
-import org.gradle.api.plugins.BasePlugin
-import org.jetbrains.kotlin.gradle.plugin.whenEvaluated
-import org.jetbrains.kotlin.gradle.tasks.KotlinNativeCompile
+import org.gradle.api.tasks.AbstractExecTask
+import org.gradle.util.ConfigureUtil
+import org.jetbrains.kotlin.gradle.plugin.AbstractKotlinTargetConfigurator
+import org.jetbrains.kotlin.gradle.tasks.AbstractKotlinNativeCompile
 import org.jetbrains.kotlin.gradle.utils.lowerCamelCaseName
 import java.io.File
 
@@ -55,36 +56,67 @@ sealed class NativeBinary(
     }
 
     // Link task access.
-    // TODO: Change name -> link...Macos from macos...Link
-    val linkTaskName
+    val linkTaskName: String
         get() = lowerCamelCaseName("link", name, target.targetName)
 
-    val linkTask
-        get() = project.tasks.getByName(linkTaskName)
+    val linkTask: AbstractKotlinNativeCompile
+        get() = project.tasks.getByName(linkTaskName) as AbstractKotlinNativeCompile
 
-    // Output files access.
+    // Output access.
+    // TODO: Provide output configurations and integrate them with Gradle Native.
     val outputDirectory: File = with(project) {
         val targetSubDirectory = target.disambiguationClassifier?.let { "$it/" }.orEmpty()
         buildDir.resolve("bin/$targetSubDirectory${this@NativeBinary.name}")
     }
 
-    // TODO: Provide file access and output configurations.
+    val outputFile: File
+        get() = linkTask.outputFile.get()
 
     // Named implementation.
     override fun getName(): String = name
 }
 
-class Executable(
+class Executable constructor(
     name: String,
     baseName: String,
     buildType: NativeBuildType,
-    compilation: KotlinNativeCompilation
+    compilation: KotlinNativeCompilation,
+    internal val isDefaultTestExecutable: Boolean
 ) : NativeBinary(name, baseName, buildType, compilation) {
+
+    constructor(
+        name: String,
+        baseName: String,
+        buildType: NativeBuildType,
+        compilation: KotlinNativeCompilation) : this(name, baseName, buildType, compilation, false)
 
     override val outputKind: NativeOutputKind
         get() = NativeOutputKind.EXECUTABLE
 
-    // TODO: Run task configuration.
+    var entryPoint: String? = null
+
+    fun entryPoint(point: String?) {
+        entryPoint = point
+    }
+
+    val runTaskName: String
+        get() = if (isDefaultTestExecutable) {
+            lowerCamelCaseName(compilation.target.targetName, AbstractKotlinTargetConfigurator.testTaskNameSuffix)
+        } else {
+            lowerCamelCaseName("run", name, compilation.target.targetName)
+        }
+
+    // TODO: may make it lateinit (along with linkTasks)?
+    val runTask: AbstractExecTask<*>
+        get() = project.tasks.getByName(runTaskName) as AbstractExecTask<*>
+
+    fun runTask(configure: AbstractExecTask<*>.() -> Unit) {
+        runTask.configure()
+    }
+
+    fun runTask(configure: Closure<*>) {
+        ConfigureUtil.configure(configure, runTask)
+    }
 }
 
 class StaticLibrary(
