@@ -466,7 +466,6 @@ open class KotlinNativeTargetConfigurator(
         // TODO: drop compilation.linkAllTaskName
         // TODO: drop compilation.binaryTasks
         // TODO: Provide a link all task.
-        // TODO: create tasks to run executables
         tasks.create(
             binary.linkTaskName,
             KotlinNativeLink::class.java
@@ -486,7 +485,7 @@ open class KotlinNativeTargetConfigurator(
         // TODO provide a special exec task for tests.
         tasks.create(taskName, Exec::class.java).apply {
             if (binary.isDefaultTestExecutable) {
-                group =  LifecycleBasePlugin.VERIFICATION_GROUP
+                group = LifecycleBasePlugin.VERIFICATION_GROUP
                 description = "Executes Kotlin/Native unit tests for target ${binary.target.name}."
                 tasks.maybeCreate(LifecycleBasePlugin.CHECK_TASK_NAME).dependsOn(this)
                 if (project.hasProperty("teamcity.version")) {
@@ -610,6 +609,7 @@ open class KotlinNativeTargetConfigurator(
         }
     }
 
+    @Suppress("DEPRECATION")
     protected fun configureBinaries(target: KotlinNativeTarget) {
         val project = target.project
         target.binaries.all {
@@ -635,6 +635,7 @@ open class KotlinNativeTargetConfigurator(
                     if (this is Executable) {
                         entryPoint = compilation.entryPoint
                     }
+                    compilation.binaryTasks[outputKind to buildType] = this
                 }
 
                 for (kind in availableOutputKinds) {
