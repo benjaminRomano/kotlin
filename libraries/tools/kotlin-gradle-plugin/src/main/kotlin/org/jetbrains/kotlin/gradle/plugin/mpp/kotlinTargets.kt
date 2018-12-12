@@ -21,6 +21,7 @@ import org.gradle.util.ConfigureUtil
 import org.gradle.util.WrapUtil
 import org.jetbrains.kotlin.gradle.dsl.KotlinCommonOptions
 import org.jetbrains.kotlin.gradle.dsl.KotlinMultiplatformExtension
+import org.jetbrains.kotlin.gradle.dsl.KotlinNativeBinaryContainer
 import org.jetbrains.kotlin.gradle.dsl.kotlinExtension
 import org.jetbrains.kotlin.gradle.plugin.*
 import org.jetbrains.kotlin.gradle.utils.isGradleVersionAtLeast
@@ -192,7 +193,7 @@ class KotlinNativeTarget(
     }
 
     val binaries = if(isGradleVersionAtLeast(4, 2)) {
-        // Use newInstance to allow accessing binaries by their names in Groovy using the propertyMissing method.
+        // Use newInstance to allow accessing binaries by their names in Groovy using the extension mechanism.
         project.objects.newInstance(KotlinNativeBinaryContainer::class.java, this, WrapUtil.toDomainObjectSet(NativeBinary::class.java))
     } else {
         KotlinNativeBinaryContainer(this, WrapUtil.toDomainObjectSet(NativeBinary::class.java))

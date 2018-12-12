@@ -3,13 +3,12 @@
  * that can be found in the license/LICENSE.txt file.
  */
 
-package org.jetbrains.kotlin.gradle.plugin.mpp
+package org.jetbrains.kotlin.gradle.dsl
 
-import groovy.lang.Closure
 import org.gradle.api.*
-import org.gradle.util.ConfigureUtil
-import org.jetbrains.kotlin.gradle.dsl.AbstractKotlinNativeBinaryContainer
+import org.gradle.api.plugins.ExtensionAware
 import org.jetbrains.kotlin.gradle.plugin.KotlinCompilation
+import org.jetbrains.kotlin.gradle.plugin.mpp.*
 import org.jetbrains.kotlin.gradle.utils.lowerCamelCaseName
 import javax.inject.Inject
 
@@ -19,7 +18,6 @@ Naming:
 executable('foo', [debug, release]) -> fooDebugExecutable + fooReleaseExecutable
 executable -> debugExecutable, releaseExecutable
 executable([debug]) -> debugExecutable
-
 
 // Tests:
 1. Cannot add a second binary with the same parameters.
@@ -31,13 +29,7 @@ executable([debug]) -> debugExecutable
     - creating binaries,
     - getting binaries and link tasks,
     - setting binary parameters using compilation DSL: linker opts and entry points
-
-
 */
-
-// TODO: Support DSL for build types.
-// TODO: May be rename parameters? namePrefix -> baseName?
-// TODO: Drop NativeOutputKind
 
 open class KotlinNativeBinaryContainer @Inject constructor(
     override val target: KotlinNativeTarget,
@@ -57,7 +49,11 @@ open class KotlinNativeBinaryContainer @Inject constructor(
     private fun generateName(prefix: String, buildType: NativeBuildType, outputKindClassifier: String) =
         lowerCamelCaseName(prefix, buildType.getName(), outputKindClassifier)
 
-    private inline fun <reified T: NativeBinary> getBinary(namePrefix: String, buildType: NativeBuildType, outputKind: NativeOutputKind) : T {
+    private inline fun <reified T : NativeBinary> getBinary(
+        namePrefix: String,
+        buildType: NativeBuildType,
+        outputKind: NativeOutputKind
+    ): T {
         val classifier = outputKind.taskNameClassifier
         val name = generateName(namePrefix, buildType, classifier)
         val binary = getByName(name)
@@ -68,36 +64,52 @@ open class KotlinNativeBinaryContainer @Inject constructor(
         return binary as T
     }
 
-    /* Provide an access to binaries by their names in Groovy DSL. */
-    override fun propertyMissing(name: String): NativeBinary = get(name)
+    private inline fun <reified T : NativeBinary> findBinary(
+        namePrefix: String,
+        buildType: NativeBuildType,
+        outputKind: NativeOutputKind
+    ): T? {
+        val classifier = outputKind.taskNameClassifier
+        val name = generateName(namePrefix, buildType, classifier)
+        val binary = findByName(name)
+        return if (binary is T && binary.buildType == buildType) {
+            binary
+        } else {
+            null
+        }
+    }
 
-    /* Provide an access to binaries by their names in Groovy DSL. Allows using the [] operator in Groovy. */
-    override fun getAt(name: String): NativeBinary = get(name)
-
-    /* Provide an access to binaries by their names in Kotlin DSL. */
-    override operator fun get(name: String): NativeBinary = nameToBinary.getValue(name)
-
-    override fun getByName(name: String): NativeBinary = get(name)
+    override fun getByName(name: String): NativeBinary = nameToBinary.getValue(name)
     override fun findByName(name: String): NativeBinary? = nameToBinary[name]
 
-    /* A type-safe executable accessor for Kotlin DSL. */
-    override fun getExecutable(namePrefix: String, buildType: NativeBuildType) =
-        getBinary<Executable>(namePrefix, buildType, NativeOutputKind.EXECUTABLE)
+    override fun getExecutable(namePrefix: String, buildType: NativeBuildType): Executable =
+        getBinary(namePrefix, buildType, NativeOutputKind.EXECUTABLE)
 
-    /* A type-safe static library accessor for Kotlin DSL. */
-    override fun getStaticLib(namePrefix: String, buildType: NativeBuildType) =
-        getBinary<StaticLibrary>(namePrefix, buildType, NativeOutputKind.STATIC)
+    override fun getStaticLib(namePrefix: String, buildType: NativeBuildType): StaticLibrary =
+        getBinary(namePrefix, buildType, NativeOutputKind.STATIC)
 
-    /* A type-safe shared library accessor for Kotlin DSL. */
-    override fun getSharedLib(namePrefix: String, buildType: NativeBuildType) =
-        getBinary<SharedLibrary>(namePrefix, buildType, NativeOutputKind.DYNAMIC)
+    override fun getSharedLib(namePrefix: String, buildType: NativeBuildType): SharedLibrary =
+        getBinary(namePrefix, buildType, NativeOutputKind.DYNAMIC)
 
-    /* A type-safe framework accessor for Kotlin DSL. */
-    override fun getFramework(namePrefix: String, buildType: NativeBuildType) =
-        getBinary<Framework>(namePrefix, buildType, NativeOutputKind.FRAMEWORK)
+    override fun getFramework(namePrefix: String, buildType: NativeBuildType): Framework =
+        getBinary(namePrefix, buildType, NativeOutputKind.FRAMEWORK)
+
+
+    override fun findExecutable(namePrefix: String, buildType: NativeBuildType): Executable? =
+        findBinary(namePrefix, buildType, NativeOutputKind.EXECUTABLE)
+
+    override fun findStaticLib(namePrefix: String, buildType: NativeBuildType): StaticLibrary? =
+        findBinary(namePrefix, buildType, NativeOutputKind.STATIC)
+
+    override fun findSharedLib(namePrefix: String, buildType: NativeBuildType): SharedLibrary? =
+        findBinary(namePrefix, buildType, NativeOutputKind.DYNAMIC)
+
+    override fun findFramework(namePrefix: String, buildType: NativeBuildType): Framework? =
+        findBinary(namePrefix, buildType, NativeOutputKind.FRAMEWORK)
     // endregion.
 
-    private fun <T: NativeBinary> createBinaries(
+    // region Factories
+    override fun <T : NativeBinary> createBinaries(
         namePrefix: String,
         baseName: String,
         outputKind: NativeOutputKind,
@@ -118,15 +130,12 @@ open class KotlinNativeBinaryContainer @Inject constructor(
         val binary = create(name, baseName, buildType, defaultCompilation)
         add(binary)
         nameToBinary[binary.name] = binary
+        // Allow accessing binaries as properties of the container in Groovy DSL.
+        if (this is ExtensionAware) {
+            extensions.add(binary.name, binary)
+        }
         binary.configure()
     }
-
-    override fun createExecutables(
-        namePrefix: String,
-        baseName: String,
-        buildTypes: Collection<NativeBuildType>,
-        configure: Executable.() -> Unit
-    ) = createBinaries(namePrefix, baseName, NativeOutputKind.EXECUTABLE, buildTypes, ::Executable, configure)
 
     internal fun defaultTestExecutable(
         configure: Executable.() -> Unit
@@ -140,25 +149,5 @@ open class KotlinNativeBinaryContainer @Inject constructor(
         },
         configure
     )
-
-    override fun createStaticLibs(
-        namePrefix: String,
-        baseName: String,
-        buildTypes: Collection<NativeBuildType>,
-        configure: StaticLibrary.() -> Unit
-    ) = createBinaries(namePrefix, baseName, NativeOutputKind.STATIC, buildTypes, ::StaticLibrary, configure)
-
-    override fun createSharedLibs(
-        namePrefix: String,
-        baseName: String,
-        buildTypes: Collection<NativeBuildType>,
-        configure: SharedLibrary.() -> Unit
-    ) = createBinaries(namePrefix, baseName, NativeOutputKind.DYNAMIC, buildTypes, ::SharedLibrary, configure)
-
-    override fun createFrameworks(
-        namePrefix: String,
-        baseName: String,
-        buildTypes: Collection<NativeBuildType>,
-        configure: Framework.() -> Unit
-    ) = createBinaries(namePrefix, baseName, NativeOutputKind.FRAMEWORK, buildTypes, ::Framework, configure)
+    // endregion.
 }
