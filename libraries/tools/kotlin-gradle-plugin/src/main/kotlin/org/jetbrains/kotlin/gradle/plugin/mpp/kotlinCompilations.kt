@@ -420,14 +420,6 @@ class KotlinNativeCompilation(
     override val processResourcesTaskName: String
         get() = disambiguateName("processResources")
 
-    // TODO: Add linkAll task and add a deprecation here.
-    val linkAllTaskName: String
-        get() = lowerCamelCaseName(
-            "link",
-            compilationName.takeIf { it != "main" }.orEmpty(),
-            target.disambiguationClassifier
-        )
-
     @Deprecated("Declaring binaries in compilations is deprecated. Use the binaries block instead, e.g. binaries.getExecutable(\"main\", DEBUG).linkTaskName")
     fun linkTaskName(kind: NativeOutputKind, buildType: NativeBuildType): String =
         lowerCamelCaseName(
