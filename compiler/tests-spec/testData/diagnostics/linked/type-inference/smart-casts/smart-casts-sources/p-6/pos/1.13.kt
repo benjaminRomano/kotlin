@@ -7,7 +7,7 @@
  *
  * SPEC VERSION: 0.1-draft
  * PLACE: type-inference, smart-casts, smart-casts-sources -> paragraph 6 -> sentence 1
- * NUMBER: 15
+ * NUMBER: 13
  * DESCRIPTION: Nullability condition, if, generic type variables
  * NOTE: lazy smartcasts
  */

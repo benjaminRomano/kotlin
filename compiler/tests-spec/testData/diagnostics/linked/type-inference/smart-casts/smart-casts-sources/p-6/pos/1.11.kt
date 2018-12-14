@@ -19,7 +19,7 @@ fun case_1() {
     val x = case_1_1(Out(10), Inv(0.1))
 
     if (x != null) {
-        <!DEBUG_INFO_EXPRESSION_TYPE("{Number & Comparable<{Int & Byte & Short & Long & Double}>} & {Number & Comparable<{Int & Byte & Short & Long & Double}>}?")!>x<!>
+        <!DEBUG_INFO_EXPRESSION_TYPE("{Comparable<{Byte & Double & Int & Long & Short}> & Number} & {Comparable<{Byte & Double & Int & Long & Short}> & Number}?")!>x<!>
     }
 }
 
@@ -30,7 +30,7 @@ fun case_2(y: Int) {
     val x = case_2_1(Out(y), Inv(0.1))
 
     if (x != null) {
-        <!DEBUG_INFO_EXPRESSION_TYPE("{Number & Comparable<{Int & Double}>} & {Number & Comparable<{Int & Double}>}?")!>x<!>
+        <!DEBUG_INFO_EXPRESSION_TYPE("{Comparable<{Double & Int}> & Number} & {Comparable<{Double & Int}> & Number}?")!>x<!>
     }
 }
 
@@ -44,14 +44,14 @@ fun case_3(a: Int?, b: Float?, c: Double?, d: Boolean?) {
         false -> b
         null -> c
     }.apply {
-        <!DEBUG_INFO_EXPRESSION_TYPE("{Number? & Comparable<{Int & Float & Double}>?}")!>this<!>
+        <!DEBUG_INFO_EXPRESSION_TYPE("{Comparable<{Double & Float & Int}>? & Number?}")!>this<!>
         if (this != null) {
-            <!DEBUG_INFO_EXPRESSION_TYPE("{Number? & Comparable<{Int & Float & Double}>?}")!>this<!>
+            <!DEBUG_INFO_EXPRESSION_TYPE("{Comparable<{Double & Float & Int}>? & Number?}")!>this<!>
         }
     }.let {
-        <!DEBUG_INFO_EXPRESSION_TYPE("{Number? & Comparable<{Int & Float & Double}>?}")!>it<!>
+        <!DEBUG_INFO_EXPRESSION_TYPE("{Comparable<{Double & Float & Int}>? & Number?}")!>it<!>
         if (it != null) {
-            <!DEBUG_INFO_EXPRESSION_TYPE("{Number? & Comparable<{Int & Float & Double}>?}")!>it<!>
+            <!DEBUG_INFO_EXPRESSION_TYPE("{Comparable<{Double & Float & Int}>? & Number?}")!>it<!>
         }
     }
 }
@@ -72,15 +72,15 @@ fun case_4(a: A4?, b: B4?, d: Boolean) {
     }
 
     x.apply {
-        <!DEBUG_INFO_EXPRESSION_TYPE("{B4? & A4?}")!>this<!>
+        <!DEBUG_INFO_EXPRESSION_TYPE("{A4? & B4?}")!>this<!>
         if (this != null) {
-            <!DEBUG_INFO_EXPRESSION_TYPE("{B4? & A4?}")!>this<!>
+            <!DEBUG_INFO_EXPRESSION_TYPE("{A4? & B4?}")!>this<!>
         }
     }
     x.let {
-        <!DEBUG_INFO_EXPRESSION_TYPE("{B4? & A4?}")!>it<!>
+        <!DEBUG_INFO_EXPRESSION_TYPE("{A4? & B4?}")!>it<!>
         if (it != null) {
-            <!DEBUG_INFO_EXPRESSION_TYPE("{B4? & A4?}")!>it<!>
+            <!DEBUG_INFO_EXPRESSION_TYPE("{A4? & B4?}")!>it<!>
         }
     }
     }
@@ -102,12 +102,12 @@ fun case_5(a: A5?, b: B5?, d: Boolean) {
 
     x.apply {
         if (this != null) {
-            <!DEBUG_INFO_EXPRESSION_TYPE("{B5? & A5?}")!>this<!>
+            <!DEBUG_INFO_EXPRESSION_TYPE("{A5? & B5?}")!>this<!>
         }
     }
     x.let {
         if (it != null) {
-            <!DEBUG_INFO_EXPRESSION_TYPE("{B5? & A5?}")!>it<!>
+            <!DEBUG_INFO_EXPRESSION_TYPE("{A5? & B5?}")!>it<!>
         }
     }
 }
@@ -130,16 +130,16 @@ fun case_6(a: A6?, b: B6, d: Boolean) {
 
     x.apply {
         this as C6
-        <!DEBUG_INFO_EXPRESSION_TYPE("{B6? & A6?}")!>this<!>
+        <!DEBUG_INFO_EXPRESSION_TYPE("{A6? & B6?}")!>this<!>
         if (<!SENSELESS_COMPARISON!>this != null<!>) {
-            <!DEBUG_INFO_EXPRESSION_TYPE("{B6? & A6?}")!>this<!>
+            <!DEBUG_INFO_EXPRESSION_TYPE("{A6? & B6?}")!>this<!>
         }
     }
     x.let {
         it as C6
-        <!DEBUG_INFO_EXPRESSION_TYPE("C6 & {B6? & A6?}")!>it<!>
+        <!DEBUG_INFO_EXPRESSION_TYPE("C6 & {A6? & B6?}")!>it<!>
         if (<!SENSELESS_COMPARISON!>it != null<!>) {
-            <!DEBUG_INFO_EXPRESSION_TYPE("C6 & {B6? & A6?}")!>it<!>
+            <!DEBUG_INFO_EXPRESSION_TYPE("C6 & {A6? & B6?}")!>it<!>
         }
     }
 }
